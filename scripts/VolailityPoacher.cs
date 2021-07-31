@@ -32,6 +32,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private StdDev stDevSlow;
 		private StdDev stDevFast;
 		
+		private int barNumberOfOrderLong = 0;
+		private int barNumberOfOrderShort = 0;
+		
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
@@ -57,20 +60,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				SlowSMA										= 20;
 				FastStdDev									= 5;
 				SlowStdDev									= 20;
-				ProfitTarget 								= 0.05;
-				StopLoss 									= 0.01;
+				ProfitTargetPoints 							= 5;
+				StopLossPoints 								= 5;
 				// Disable this property for performance gains in Strategy Analyzer optimizations
 				// See the Help Guide for additional information
-				IsInstantiatedOnEachOptimizationIteration	= true;
+				IsInstantiatedOnEachOptimizationIteration	= false;
 			}
 			if (State == State.Configure)
 			{
-								
-				// Take profit for every live position, 1%
-				SetProfitTarget(CalculationMode.Percent, ProfitTarget);
-				
-				// Set a stop loss
-				SetStopLoss(CalculationMode.Percent, StopLoss);
 				
 				// Indicator 1, measure trend 
 				emaFast = EMA(FastEMA);
@@ -83,8 +80,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				AddChartIndicator(smaSlow);
 				
 				// Indicator 2, measure volatility
-				stDevSlow=StdDev(SlowStdDev);
-				stDevFast=StdDev(FastStdDev);
+				stDevSlow=StdDev(Volume, SlowStdDev);
+				stDevFast=StdDev(Volume, FastStdDev);
 				
 				stDevSlow.Plots[0].Brush = Brushes.AliceBlue;
 				stDevFast.Plots[0].Brush = Brushes.DarkOliveGreen;
@@ -99,12 +96,56 @@ namespace NinjaTrader.NinjaScript.Strategies
 		{
 			if (BarsInProgress != 0) 
 				return;
+
+			
 			// If Spike in volatility and shift in trend, short/long other direction than trend 
 			if (CrossAbove(stDevFast, stDevSlow, 1) & CrossAbove(emaFast, smaSlow, 1))
+			{
 				EnterLong();
+			}
 			
 			if (CrossAbove(stDevFast, stDevSlow, 1) & CrossBelow(emaFast, smaSlow, 1))
+			{
 				EnterShort();
+				barNumberOfOrderShort = CurrentBar;
+
+			}
+			
+			
+			// Exit after set amount of time no matter what
+			if(CurrentBar > barNumberOfOrderLong + 10)
+			{
+				ExitLong();
+				
+			}
+			
+			if(CurrentBar>barNumberOfOrderShort + 10)
+			{
+
+				ExitShort();
+			}
+			
+			// If long active, and we have unrealized profit above target exit 
+			if((Position.MarketPosition == MarketPosition.Long) & 
+				((Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) >= ProfitTargetPoints) | 
+				(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) <= -StopLossPoints)))
+			{
+				Print(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]));
+				ExitLong();
+				
+			}
+			
+			// If long active, and we have unrealized profit above target exit 
+			if((Position.MarketPosition == MarketPosition.Short) & 
+				((Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) >= ProfitTargetPoints) | 
+				(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) <= -StopLossPoints)))
+			{
+				Print(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]));
+				ExitShort();
+				
+			}
+
+
 
 		}
 		
@@ -130,15 +171,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Range(0, double.MaxValue)]
-		[Display(ResourceType = typeof(Custom.Resource), Name="ProfitTarget", GroupName="NinjaScriptStrategyParameters", Order=2)]
-		public double ProfitTarget
+		[Range(int.MinValue, int.MaxValue)]
+		[Display(ResourceType = typeof(Custom.Resource), Name="ProfitTargetPoints", GroupName="NinjaScriptStrategyParameters", Order=1)]
+		public double ProfitTargetPoints
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Range(0, double.MaxValue)]
-		[Display(ResourceType = typeof(Custom.Resource), Name="StopLoss", GroupName="NinjaScriptStrategyParameters", Order=2)]
-		public double StopLoss
+		[Range(int.MinValue, int.MaxValue)]
+		[Display(ResourceType = typeof(Custom.Resource), Name="StopLossPoints", GroupName="NinjaScriptStrategyParameters", Order=1)]
+		public double StopLossPoints
 		{ get; set; }
 		
 		#endregion

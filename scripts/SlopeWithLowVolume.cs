@@ -36,7 +36,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private double VolumeSpanPos;
 		private double VolumeSpanNeg;
 		
-
+		private int barNumberOfOrderLong = 0;
+		private int barNumberOfOrderShort = 0;
+		
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
@@ -60,38 +62,29 @@ namespace NinjaTrader.NinjaScript.Strategies
 				StopTargetHandling							= StopTargetHandling.PerEntryExecution;
 				BarsRequiredToTrade							= 20;
 				RegSlopeBarLength							= 20;
-				RegInterBarLength							= 5;
 				VolFastBarLength							= 5;
 				VolSlowBarLength							= 20;
 				RegSlopeMinAngle							= 0.4;
 				RegSlopeMaxAngle							= 1.7;
 				VolumeOffsetPos								= 1.1;
 				VolumeOffsetNeg								= 0.9;
-				ProfitTarget 								= 0.25;
-				StopLoss 									= 0.25;
+				ProfitTargetPoints 							= 5;
+				StopLossPoints 								= 5;
 				// Disable this property for performance gains in Strategy Analyzer optimizations
 				// See the Help Guide for additional information
-				IsInstantiatedOnEachOptimizationIteration	= true;
+				IsInstantiatedOnEachOptimizationIteration	= false;
 
 			}
 			if (State == State.Configure)
 			{
-								
-				// Take profit for every live position, 25%
-				SetProfitTarget(CalculationMode.Percent, ProfitTarget);
-				
-				// Set a stop loss, higher stop loss due to being trend based, lower fluctiations
-				SetStopLoss(CalculationMode.Percent, StopLoss);
-				
+												
 				// Indicator 1, slope of price
 				regSlope = LinRegSlope(Close, RegSlopeBarLength); //20
-				regInter = LinRegIntercept(Close, RegInterBarLength); // 5
-								
+				
 				regSlope.Plots[0].Brush = Brushes.Magenta;
-				regInter.Plots[0].Brush = Brushes.Aqua;
 				
 				AddChartIndicator(regSlope);
-				AddChartIndicator(regInter);
+
 								
 				// Indicator 2, Measure of volume
 				volFast = VOLMA(VolFastBarLength); // 5
@@ -102,9 +95,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				
 				AddChartIndicator(volFast);
 				AddChartIndicator(volSlow);
-				
-
-				
+							
 			}
 		}
 
@@ -113,36 +104,64 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (BarsInProgress != 0) 
 				return;
 			
-// add exists if other activates
 			
+			// Entry condition 1
 			if (((regSlope[0]>=RegSlopeMinAngle) & (regSlope[0]<=RegSlopeMaxAngle)) & ((volFast[0]<=volSlow[0]*VolumeOffsetPos) & (volFast[0]>=volSlow[0]*VolumeOffsetNeg)))
 			{
+				// Exists if short is active
 				if(Position.MarketPosition == MarketPosition.Short)
 				{
 					ExitShort();
 				}
 				EnterLong();
+				barNumberOfOrderLong = CurrentBar;
 			}
 			
+			// Entry condition 2
 			if (((regSlope[0]<=-RegSlopeMinAngle) & (regSlope[0]>=-RegSlopeMaxAngle)) & ((volFast[0]<=volSlow[0]*VolumeOffsetPos) & (volFast[0]>=volSlow[0]*VolumeOffsetNeg)))
 			{
+				
+				// Exists if long is active
 				if(Position.MarketPosition == MarketPosition.Long)
 				{
 					ExitLong();
 				}
+				
 				EnterShort();
+				barNumberOfOrderShort = CurrentBar;
 			}
+			
+			
+			// If long active, and we have unrealized profit above target exit 
+			if(//(CurrentBar > barNumberOfOrderLong + 5) & 
+				(Position.MarketPosition == MarketPosition.Long) & 
+				((Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) >= ProfitTargetPoints) | 
+				(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) <= -StopLossPoints)))
+			{
+				Print(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]));
+				ExitLong();
+				
+			}
+			
+			// If long active, and we have unrealized profit above target exit 
+			if(//(CurrentBar > barNumberOfOrderShort + 5) & 
+				(Position.MarketPosition == MarketPosition.Short) & 
+				((Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) >= ProfitTargetPoints) | 
+				(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) <= -StopLossPoints)))
+			{
+				Print(Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]));
+				ExitShort();
+				
+			}
+			
+			
+			// Add condition, if plan, then leave position 
 		}
 		
 		#region Properties
 		[Range(1, int.MaxValue), NinjaScriptProperty]
 		[Display(ResourceType = typeof(Custom.Resource), Name = "RegSlopeBarLength", GroupName = "NinjaScriptStrategyParameters", Order = 1)]
 		public int RegSlopeBarLength
-		{ get; set; }
-
-		[Range(1, int.MaxValue), NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "RegInterBarLength", GroupName = "NinjaScriptStrategyParameters", Order = 1)]
-		public int RegInterBarLength
 		{ get; set; }
 		
 		[Range(1, int.MaxValue), NinjaScriptProperty]
@@ -180,15 +199,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 		{ get; set; }		
 		
 		[NinjaScriptProperty]
-		[Range(0.01, 1.0)]
-		[Display(ResourceType = typeof(Custom.Resource), Name="ProfitTarget", GroupName="NinjaScriptStrategyParameters", Order=1)]
-		public double ProfitTarget
+		[Range(int.MinValue, int.MaxValue)]
+		[Display(ResourceType = typeof(Custom.Resource), Name="ProfitTargetPoints", GroupName="NinjaScriptStrategyParameters", Order=1)]
+		public double ProfitTargetPoints
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Range(0.01, 1.0)]
-		[Display(ResourceType = typeof(Custom.Resource), Name="StopLoss", GroupName="NinjaScriptStrategyParameters", Order=1)]
-		public double StopLoss
+		[Range(int.MinValue, int.MaxValue)]
+		[Display(ResourceType = typeof(Custom.Resource), Name="StopLossPoints", GroupName="NinjaScriptStrategyParameters", Order=1)]
+		public double StopLossPoints
 		{ get; set; }
 
 		#endregion
