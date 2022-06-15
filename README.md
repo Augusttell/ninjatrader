@@ -1,2 +1,2 @@
 # ninjatrader
-Bots &amp; indicators for nijatrader
+Trading strategies & indicators for ninjatrader 
